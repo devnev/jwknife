@@ -180,26 +180,20 @@ func handleGen(args []string, set jwk.Set) error {
 		if !ok {
 			return errors.New("crv field must be string for --okp")
 		}
-		var rawPub any
-		var rawPriv any
+		var rawKey any
 		var err error
 		switch crv {
 		case jwa.Ed25519.String():
-			rawPub, rawPriv, err = ed25519.GenerateKey(rand.Reader)
+			_, rawKey, err = ed25519.GenerateKey(rand.Reader)
 		case jwa.X25519.String():
-			rawPub, rawPriv, err = x25519.GenerateKey(rand.Reader)
+			_, rawKey, err = x25519.GenerateKey(rand.Reader)
 		default:
 			return errors.New("curve unavailable")
 		}
 		if err != nil {
 			return err
 		}
-		if err = addKey(rawPriv, props, set); err != nil {
-			return err
-		}
-		if err = addKey(rawPub, props, set); err != nil {
-			return err
-		}
+		return addKey(rawKey, props, set)
 	}
 
 	panic("unreachable")
