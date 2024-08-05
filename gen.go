@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -11,12 +11,14 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/x25519"
 )
 
 func handleGen(args []string, set jwk.Set) error {
 	var (
 		rsabits *int
-		curve   *elliptic.Curve
+		ec      bool
+		okp     bool
 		props   = make(map[string]any)
 	)
 
@@ -40,21 +42,21 @@ func handleGen(args []string, set jwk.Set) error {
 				return errors.New("unsupported bit-length for --rsa")
 			}
 		case "ec":
-			if curve != nil {
+			if ec {
 				return errors.New("duplicate flag --ec")
 			}
-			if value == "" {
-				return errors.New("missing or empty value for --ec")
+			if found {
+				return errors.New("--ec does not take a value")
 			}
-			var ecalgo jwa.EllipticCurveAlgorithm
-			if err := ecalgo.Accept(value); err != nil {
-				return errors.New("invalid EC algorithm")
+			ec = true
+		case "okp":
+			if okp {
+				return errors.New("duplicate flag --okp")
 			}
-			curve = new(elliptic.Curve)
-			*curve, found = jwk.CurveForAlgorithm(ecalgo)
-			if !found {
-				return errors.New("unsupported curve algorithm")
+			if found {
+				return errors.New("--okp does not take a value")
 			}
+			okp = true
 		case "setstr":
 			if value == "" {
 				return errors.New("missing or empty value for --set")
@@ -88,11 +90,21 @@ func handleGen(args []string, set jwk.Set) error {
 		}
 	}
 
-	if rsabits == nil && curve == nil {
-		return errors.New("must specify either --rsa or --ec")
+	var ktycount int
+	if rsabits != nil {
+		ktycount++
 	}
-	if rsabits != nil && curve != nil {
-		return errors.New("cannot specify both --rsa and --ec")
+	if ec {
+		ktycount++
+	}
+	if okp {
+		ktycount++
+	}
+	if ktycount == 0 {
+		return errors.New("must specify one of --rsa, --ec or --okp")
+	}
+	if ktycount > 1 {
+		return errors.New("cannot specify multiple of --rsa, --ec or --okp")
 	}
 
 	if rsabits != nil {
@@ -103,12 +115,91 @@ func handleGen(args []string, set jwk.Set) error {
 		return addKey(rawKey, props, set)
 	}
 
-	if curve != nil {
-		rawKey, err := ecdsa.GenerateKey(*curve, rand.Reader)
+	if ec {
+		crvval, ok := props["crv"]
+		if !ok {
+			switch props["alg"] {
+			case jwa.ES256.String():
+				crvval = jwa.P256.String()
+			case jwa.ES384.String():
+				crvval = jwa.P384.String()
+			case jwa.ES512.String():
+				crvval = jwa.P521.String()
+			default:
+				if _, ok := props["alg"]; ok {
+					return errors.New("cannot infer crv from alg field, must set crv field with --setstr or --setjson for --ec")
+				}
+				return errors.New("must set crv or alg field with --setstr or --setjson for --ec")
+			}
+		}
+		crv, ok := crvval.(string)
+		if !ok {
+			return errors.New("crv field must be string for --ec")
+		}
+		curve, ok := jwk.CurveForAlgorithm(jwa.EllipticCurveAlgorithm(crv))
+		if !ok {
+			return errors.New("curve unavailable")
+		}
+		if _, ok := props["alg"]; !ok {
+			switch crv {
+			case jwa.P256.String():
+				props["alg"] = jwa.ES256.String()
+			case jwa.P384.String():
+				props["alg"] = jwa.ES384.String()
+			case jwa.P521.String():
+				props["alg"] = jwa.ES512.String()
+			}
+		}
+
+		rawKey, err := ecdsa.GenerateKey(curve, rand.Reader)
 		if err != nil {
 			return err
 		}
 		return addKey(rawKey, props, set)
+	}
+
+	if okp {
+		algval, ok := props["alg"]
+		if ok {
+			alg, ok := algval.(string)
+			if !ok {
+				return errors.New("alg field must be string for --okp")
+			}
+			if alg != jwa.EdDSA.String() {
+				return errors.New("invalid alg field value for --okp")
+			}
+		} else {
+			props["alg"] = jwa.EdDSA.String()
+		}
+
+		crvval, ok := props["crv"]
+		if !ok {
+			return errors.New("must set crv field with --setstr or --setjson for --okp")
+		}
+		crv, ok := crvval.(string)
+		if !ok {
+			return errors.New("crv field must be string for --okp")
+		}
+		var rawPub any
+		var rawPriv any
+		var err error
+		switch crv {
+		case jwa.Ed25519.String():
+			rawPub, rawPriv, err = ed25519.GenerateKey(rand.Reader)
+		case jwa.X25519.String():
+			rawPub, rawPriv, err = x25519.GenerateKey(rand.Reader)
+		default:
+			return errors.New("curve unavailable")
+		}
+		if err != nil {
+			return err
+		}
+		if err = addKey(rawPriv, props, set); err != nil {
+			return err
+		}
+		if err = addKey(rawPub, props, set); err != nil {
+			return err
+		}
 	}
 
 	panic("unreachable")

@@ -31,7 +31,7 @@ Example:
 
 Available subcommands:
 	read [-jwks] [-pem] [-insecure] [-path=path] [-url=url] [-schemes=scheme[,...]]
-	gen [-rsa=bits] [-ec=curve] [-setstr=key=str] [-setjson=key=json]
+	gen [-rsa=bits] [-ec] [-okp] [-setstr=key=str] [-setjson=key=json]
 	write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-insecure]
 `
 
