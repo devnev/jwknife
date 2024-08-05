@@ -1,5 +1,8 @@
 # JWKnife - Swiss Army Knife of JWK sets
 
+![GitHub License](https://img.shields.io/github/license/devnev/jwknife)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/devnev/jwknife/ci.yml?branch=main)
+
 Manipulate & Convert JWK sets.
 - Read any number of keys in PEM, JWK or JWKS format into a single JWK set.
 - Output some or all of the JWKs as a JWK set or PEM.
