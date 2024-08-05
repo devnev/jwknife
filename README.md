@@ -15,7 +15,7 @@ Operations are implemented entirely using functions of the Go standard library a
 Shell command:
 
 ```sh
-jwknife read -pem -path=my.pem gen -rsa=2048 -set=alg=RS256 -set=use=sig write -jwks -path=my-jwk.json
+jwknife read -pem -path=my.pem gen -rsa=2048 -setstr=alg=RS256 -setstr=use=sig write -jwks -path=my-jwk.json
 ```
 
 In a compose file:
@@ -53,6 +53,6 @@ Available subcommands:
 
 ```sh
 read [-jwks] [-pem] [-insecure] [-path=path] [-url=url] [-schemes=scheme[,...]]
-gen [-rsa=bits] [-ec=curve] [-setstr=key=str] [-setjson=key=json]
+gen [-rsa=bits] [-ec] [-setstr=key=str] [-setjson=key=json]
 write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-insecure]
 ```
