@@ -10,6 +10,8 @@ Manipulate & Convert JWK sets.
 
 Operations are implemented entirely using functions of the Go standard library and github.com/go-jose/go-jose module.
 
+The command format is designed to be unambiguous; possible interpretations of a flag's value must be non-overlapping (e.g. separate `-path` and `-url` flags instead of trying to detect if the value is a valid URL). Risky behaviour like outputting private keys or use plaintext protocols require an individual boolean flag to explicitly allow them (e.g. `-allow-plaintext` or `-fullkey`).
+
 ## Example
 
 Shell command:
