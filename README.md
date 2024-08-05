@@ -12,8 +12,37 @@ Operations are implemented entirely using functions of the Go standard library a
 
 ## Example
 
+Shell command:
+
 ```sh
 jwknife read -pem -path=my.pem gen -rsa=2048 -set=alg=RS256 -set=use=sig write -jwks -path=my-jwk.json
+```
+
+In a compose file:
+
+```yml
+version: "3"
+services:
+  keygen:
+    image: docker pull devnev/jwknife:latest
+    command: >
+      gen -rsa=2048 -setstr=use=sig -setstr=alg=RS256
+      write -pubkey -pem /keys/pub.pem
+      write -pubkey -jwks /keys/pub.json
+      write -fullkey -pem /keys/priv.pem
+      write -fullkey -jwks /keys/priv.json
+    volumes:
+      - keys:/keys
+  api:
+    build:
+      context: .
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+    volumes:
+      - keys:/keys:ro
+volumes:
+  keys:
 ```
 
 ## Usage
