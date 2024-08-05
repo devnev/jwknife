@@ -1,4 +1,4 @@
-module github.com/devnev/keygen
+module github.com/devnev/jwknife
 
 go 1.22.3
 
