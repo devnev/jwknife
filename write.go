@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,7 +15,7 @@ import (
 )
 
 var writeSyntax = strings.TrimSpace(`
-write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal] [-url=url] [-post] [-put] [-allow-plaintext]
+write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal] [-mkdir=octal] [-url=url] [-post] [-put] [-allow-plaintext]
 `)
 
 var writeSummary = strings.TrimSpace(`
@@ -30,6 +31,7 @@ var writeFlags = strings.TrimSpace(`
 -pem             Write the keys as a series of PEM blocks.
 -path=path       Write the keys to a file at the given path.
 -mode=mode       The permission mode of the file when a path is given.
+-mkdir=mode      Create missing parent directories with the given permission mode.
 -url=url         Write the file to the given URL.
 -post            When a HTTP(S) URL is given, make a POST request.
 -put             When a HTTP(S) URL is given, make a PUT request.
@@ -44,6 +46,7 @@ func handleWrite(args []string, set jwk.Set) error {
 		pem       bool
 		path      *string
 		mode      *uint32
+		mkdir     *uint32
 		post      bool
 		put       bool
 		url_      *url.URL
@@ -105,11 +108,27 @@ func handleWrite(args []string, set jwk.Set) error {
 			if err != nil {
 				return err
 			}
-			if (parsed & ^uint64(0777)) != 0 {
+			if (parsed & ^uint64(os.ModePerm)) != 0 {
 				return errors.New("invalid mode")
 			}
 			mode = new(uint32)
 			*mode = uint32(parsed)
+		case "mkdir":
+			if mkdir != nil {
+				return errors.New("duplicate flag --mkdir")
+			}
+			if value == "" {
+				return errors.New("missing or emtpy value for --mkdir")
+			}
+			parsed, err := strconv.ParseUint(value, 8, 32)
+			if err != nil {
+				return err
+			}
+			if (parsed & ^uint64(os.ModePerm)) != 0 {
+				return errors.New("invalid mkdir mode")
+			}
+			mkdir = new(uint32)
+			*mkdir = uint32(parsed)
 		case "url":
 			if url_ != nil {
 				return errors.New("duplicate flag --url")
@@ -232,10 +251,23 @@ func handleWrite(args []string, set jwk.Set) error {
 		if mode != nil {
 			filemode = os.FileMode(*mode)
 		}
-		return os.WriteFile(*path, []byte(encoded), filemode)
+		err = os.WriteFile(*path, []byte(encoded), filemode)
+		if os.IsNotExist(err) && mkdir != nil {
+			if err = os.MkdirAll(filepath.Base(*path), os.FileMode(*mkdir)); err != nil {
+				return err
+			}
+			err = os.WriteFile(*path, []byte(encoded), filemode)
+		}
+		return err
 	}
 
 	if url_ != nil {
+		if mode != nil {
+			return errors.New("cannot specify both --url and --mode")
+		}
+		if mkdir != nil {
+			return errors.New("cannot specify both --url and --mkdir")
+		}
 		if post && put {
 			return errors.New("cannot specify both --post and --put")
 		}

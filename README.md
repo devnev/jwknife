@@ -53,6 +53,6 @@ Available subcommands:
 
 ```sh
 read [-jwks] [-pem] [-allow-plaintext] [-path=path] [-url=url] [-schemes=scheme[,...]]
-gen [-rsa=bits] [-ec] [-setstr=key=str] [-setjson=key=json]
-write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-allow-plaintext]
+gen [-rsa=bits] [-ec] [-okp] [-setstr=key=str] [-setjson=key=json]
+write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal] [-mkdir=octal] [-url=url] [-post] [-put] [-allow-plaintext]
 ```
