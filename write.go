@@ -13,18 +13,41 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
+var writeSyntax = strings.TrimSpace(`
+write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal] [-url=url] [-post] [-put] [-allow-plaintext]
+`)
+
+var writeSummary = strings.TrimSpace(`
+Write the JWK set.
+
+The set can be written to either a path or a URL. The supported URL schemes are http and https, but http is only enabled when the -allow-plaintext flag is set. By default, or if -pubkey is given, only the public keys are written. Specify -fullkey to write each key in its entirety. By default, or if -jwks is given, the keys are written as a JWK set. Specify -pem to write the keys as a series of PEM blocks. If a path is specified, the file mode defaults to octal 0400. If a url is specified, the request method defaults to PUT. Specify -post to use a POST request.
+`)
+
+var writeFlags = strings.TrimSpace(`
+-pubkey          Write public key forms of each key.
+-fullkey         Write the full key for each key.
+-jwks            Write the keys as a JWK set.
+-pem             Write the keys as a series of PEM blocks.
+-path=path       Write the keys to a file at the given path.
+-mode=mode       The permission mode of the file when a path is given.
+-url=url         Write the file to the given URL.
+-post            When a HTTP(S) URL is given, make a POST request.
+-put             When a HTTP(S) URL is given, make a PUT request.
+-allow-plaintext Allow plaintext traffic when writing the file using a request.
+`)
+
 func handleWrite(args []string, set jwk.Set) error {
 	var (
-		pubkey   bool
-		fullkey  bool
-		jwks     bool
-		pem      bool
-		path     *string
-		mode     *uint32
-		post     bool
-		put      bool
-		url_     *url.URL
-		insecure bool
+		pubkey    bool
+		fullkey   bool
+		jwks      bool
+		pem       bool
+		path      *string
+		mode      *uint32
+		post      bool
+		put       bool
+		url_      *url.URL
+		plaintext bool
 	)
 
 	for _, arg := range args {
@@ -115,14 +138,14 @@ func handleWrite(args []string, set jwk.Set) error {
 				return errors.New("--put does not take a value")
 			}
 			put = true
-		case "insecure":
-			if insecure {
-				return errors.New("duplicate flag --insecure")
+		case "allow-plaintext":
+			if plaintext {
+				return errors.New("duplicate flag --allow-plaintext")
 			}
 			if found {
-				return errors.New("--insecure does not take a value")
+				return errors.New("--allow-plaintext does not take a value")
 			}
-			insecure = true
+			plaintext = true
 		default:
 			return errors.New("invalid flag")
 		}
@@ -197,8 +220,8 @@ func handleWrite(args []string, set jwk.Set) error {
 		if put {
 			return errors.New("cannot specify both --path and --put")
 		}
-		if insecure {
-			return errors.New("cannot specify both --path and --insecure")
+		if plaintext {
+			return errors.New("cannot specify both --path and --allow-plaintext")
 		}
 
 		encoded, err := encode()
@@ -218,7 +241,7 @@ func handleWrite(args []string, set jwk.Set) error {
 		}
 		switch {
 		case url_.Scheme == "https":
-		case insecure && url_.Scheme == "http":
+		case plaintext && url_.Scheme == "http":
 		default:
 			return errors.New("unsupported scheme for --url")
 		}

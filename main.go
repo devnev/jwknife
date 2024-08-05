@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	jwk "github.com/lestrrat-go/jwx/v2/jwk"
@@ -21,24 +20,6 @@ func main() {
 	}
 }
 
-const usagetpl = `
-Manipulate & Convert JWK sets.
-- Read any number of keys in PEM, JWK or JWKS format into a single JWK set.
-- Output some or all of the JWKs as a JWK set or PEM.
-
-Example:
-	%[1]s read -pem -path=my.pem gen -rsa=2048 -set=alg=RS256 -set=use=sig write -jwks -path=my-jwk.json
-
-Available subcommands:
-	read [-jwks] [-pem] [-insecure] [-path=path] [-url=url] [-schemes=scheme[,...]]
-	gen [-rsa=bits] [-ec] [-okp] [-setstr=key=str] [-setjson=key=json]
-	write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-insecure]
-`
-
-func usage() string {
-	return fmt.Sprintf(strings.TrimSpace(usagetpl), filepath.Base(os.Args[0]))
-}
-
 func run(args []string) error {
 	if len(args) <= 1 {
 		fmt.Println(usage())
@@ -47,7 +28,7 @@ func run(args []string) error {
 	cmds := [][]string{[]string{"opts"}}
 	for _, arg := range args[1:] {
 		if arg == "--help" {
-			fmt.Println(usage())
+			fmt.Println(cmdHelp(cmds[len(cmds)-1][0]))
 			return nil
 		}
 		if strings.HasPrefix(arg, "-") {

@@ -52,7 +52,7 @@ Arguments form a series of commands applied to a single JWK set.
 Available subcommands:
 
 ```sh
-read [-jwks] [-pem] [-insecure] [-path=path] [-url=url] [-schemes=scheme[,...]]
+read [-jwks] [-pem] [-allow-plaintext] [-path=path] [-url=url] [-schemes=scheme[,...]]
 gen [-rsa=bits] [-ec] [-setstr=key=str] [-setjson=key=json]
-write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-insecure]
+write [-pubkey] [-fullkey] [-jwks] [-pem] [-path=path] [-mode=octal-mode] [-url=url] [-post] [-put] [-allow-plaintext]
 ```

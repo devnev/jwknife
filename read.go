@@ -14,14 +14,35 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
+var readSyntax = strings.TrimSpace(`
+read [-jwks] [-pem] [-allow-plaintext] [-path=path] [-url=url] [-schemes=scheme[,...]]
+`)
+
+var readSummary = strings.TrimSpace(`
+Append keys to the JWK set.
+
+The source may be given using a path or a URL. The supported URL schemes are file, http and https, but http is only enabled when the -allow-plaintext flag is set. To further restrict the allowed schemes, use the --scheme flag.
+
+If -pem is given, the ssource must be a series of one or more PEM blocks. Otherwise (with -jwks given, or neither -jwks nor -pem), the source must be either a JWK or a JWK set.
+`)
+
+var readFlags = strings.TrimSpace(`
+-jwks                 The source must be a JWK or JWK set.
+-pem                  The source must be a series of PEM blocks.
+-allow-plaintext      Allow plaintext traffic during retrieval of the URL.
+-path=path            The path of the source file.
+-url=url              The url of the source. Supported schemes are file, http and https.
+-schemes=scheme[,...] The schemes to allow. Defaults to all supported if not specified.
+`)
+
 func handleRead(args []string, set jwk.Set) error {
 	var (
-		jwks     bool
-		pem      bool
-		insecure bool
-		path     *string
-		url_     *string
-		schemes  *[]string
+		jwks      bool
+		pem       bool
+		plaintext bool
+		path      *string
+		url_      *string
+		schemes   *[]string
 	)
 	for _, arg := range args {
 		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
@@ -42,14 +63,14 @@ func handleRead(args []string, set jwk.Set) error {
 				return errors.New("--pem does not take a value")
 			}
 			pem = true
-		case "insecure":
-			if insecure {
-				return errors.New("duplicate flag --insecure")
+		case "allow-plaintext":
+			if plaintext {
+				return errors.New("duplicate flag --allow-plaintext")
 			}
 			if found {
-				return errors.New("--insecure does not take a value")
+				return errors.New("--allow-plaintext does not take a value")
 			}
-			insecure = true
+			plaintext = true
 		case "path":
 			if path != nil {
 				return errors.New("duplicate flag --path")
@@ -103,12 +124,12 @@ func handleRead(args []string, set jwk.Set) error {
 	}
 
 	if url_ != nil {
-		if schemes != nil && !insecure && slices.Contains(*schemes, "http") {
+		if schemes != nil && !plaintext && slices.Contains(*schemes, "http") {
 			return errors.New("scheme http invalid without --insecure")
 		}
 		if schemes == nil {
 			schemes = new([]string)
-			if insecure {
+			if plaintext {
 				*schemes = []string{"file", "https"}
 			} else {
 				*schemes = []string{"file", "http", "https"}
@@ -129,7 +150,7 @@ func handleRead(args []string, set jwk.Set) error {
 	}
 
 	if path != nil {
-		if insecure {
+		if plaintext {
 			return errors.New("can only specify --insecure with --url")
 		}
 		if schemes != nil {

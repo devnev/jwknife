@@ -14,6 +14,28 @@ import (
 	"github.com/lestrrat-go/jwx/v2/x25519"
 )
 
+var genSyntax = strings.TrimSpace(`
+gen [-rsa=bits] [-ec] [-okp] [-setstr=key=str] [-setjson=key=json]
+`)
+
+var genSummary = strings.TrimSpace(`
+Generate and append a key to the JWK set.
+
+Key generation takes its parameters from the key's properties where possible. Specifically, EC and OKP keys use the "alg" and/or "crv" fields to determine which elliptic curve to use.
+
+The private key is added to the JWK set during generation. To get just the public key, use the corresponding flags on the write command when writing keys.
+
+Properties of the key are set using -setstr or -setjson. The "kty" property cannot be modified. Minimal validation is applied to properties; standard JWK properties must have the correct primitive type.
+`)
+
+var genFlags = strings.TrimSpace(`
+-rsa=bits         Generate an RSA key with the given bit length.
+-ec               Generate an EC key.
+-okp              Generate an OKP key.
+-setstr=key=str   Set the given property to the (unparsed) string value.
+-setjson=key=json Parse the value as JSON and set the given property to the value.
+`)
+
 func handleGen(args []string, set jwk.Set) error {
 	var (
 		rsabits *int
