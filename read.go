@@ -41,8 +41,9 @@ func handleRead(args []string, set jwk.Set) error {
 		pem       bool
 		plaintext bool
 		path      *string
-		url_      *string
-		schemes   *[]string
+		//nolint:revive // TODO: find a better way of importing net/url and having a url variable
+		url_    *string
+		schemes *[]string
 	)
 	for _, arg := range args {
 		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
@@ -100,7 +101,7 @@ func handleRead(args []string, set jwk.Set) error {
 			*schemes = strings.Split(arg, ",")
 			for _, scheme := range *schemes {
 				switch scheme {
-				case "file", "http", "https":
+				case "file", "http", "https": //nolint:goconst // TODO: factor out various scheme lists
 				default:
 					return errors.New("unsupported scheme")
 				}
@@ -113,6 +114,7 @@ func handleRead(args []string, set jwk.Set) error {
 	if jwks && pem {
 		return errors.New("cannot specify both --jwks and --pem")
 	} else if !pem {
+		//nolint:ineffassign // Make the values consistent even though its not used (yet)
 		jwks = true
 	}
 
@@ -130,9 +132,9 @@ func handleRead(args []string, set jwk.Set) error {
 		if schemes == nil {
 			schemes = new([]string)
 			if plaintext {
-				*schemes = []string{"file", "https"}
-			} else {
 				*schemes = []string{"file", "http", "https"}
+			} else {
+				*schemes = []string{"file", "https"}
 			}
 		}
 		parsed, err := url.Parse(*url_)
@@ -142,9 +144,9 @@ func handleRead(args []string, set jwk.Set) error {
 		if !slices.Contains(*schemes, parsed.Scheme) {
 			return errors.New("blocked url scheme")
 		}
-		var kind = "jwk"
+		var kind = kindJWK
 		if pem {
-			kind = "pem"
+			kind = kindPEM
 		}
 		return readFromURL(parsed, kind, set)
 	}
@@ -156,9 +158,9 @@ func handleRead(args []string, set jwk.Set) error {
 		if schemes != nil {
 			return errors.New("can only specify --schemes with --url")
 		}
-		var kind = "jwk"
+		var kind = kindJWK
 		if pem {
-			kind = "pem"
+			kind = kindPEM
 		}
 		return readFromPath(*path, kind, set)
 	}
@@ -166,7 +168,7 @@ func handleRead(args []string, set jwk.Set) error {
 	panic("unreachable")
 }
 
-func readFromPath(arg string, kind string, set jwk.Set) error {
+func readFromPath(arg string, kind contentKind, set jwk.Set) error {
 	contents, err := os.ReadFile(arg)
 	if err != nil {
 		return err
@@ -174,7 +176,7 @@ func readFromPath(arg string, kind string, set jwk.Set) error {
 	return parseContents(contents, kind, set)
 }
 
-func readFromURL(from *url.URL, kind string, set jwk.Set) error {
+func readFromURL(from *url.URL, kind contentKind, set jwk.Set) error {
 	if from.Scheme == "file" {
 		if from.Opaque != "" {
 			path, err := url.PathUnescape(from.Opaque)
@@ -192,6 +194,7 @@ func readFromURL(from *url.URL, kind string, set jwk.Set) error {
 	}
 
 	if from.Scheme == "https" || from.Scheme == "http" {
+		//nolint:noctx // TODO: introduce timeout
 		resp, err := http.Get(from.String())
 		if err != nil {
 			return err
@@ -214,13 +217,21 @@ func readFromURL(from *url.URL, kind string, set jwk.Set) error {
 	return errors.New("unsupported URL scheme")
 }
 
-func parseContents(contents []byte, kind string, set jwk.Set) error {
-	read, err := jwk.Parse(contents, jwk.WithPEM(kind == "pem"))
+type contentKind string
+
+const (
+	kindPEM contentKind = "pem"
+	kindJWK contentKind = "jwk"
+)
+
+func parseContents(contents []byte, kind contentKind, set jwk.Set) error {
+	read, err := jwk.Parse(contents, jwk.WithPEM(kind == kindPEM))
 	if err != nil {
 		return err
 	}
 	iter := read.Keys(context.Background())
 	for iter.Next(context.Background()) {
+		//nolint:forcetypeassert // It would be a bug if iterating over keys didn't give us a jwk.Key
 		if err = (set).AddKey(iter.Pair().Value.(jwk.Key)); err != nil {
 			return err
 		}

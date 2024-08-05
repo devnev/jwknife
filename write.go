@@ -40,15 +40,16 @@ var writeFlags = strings.TrimSpace(`
 
 func handleWrite(args []string, set jwk.Set) error {
 	var (
-		pubkey    bool
-		fullkey   bool
-		jwks      bool
-		pem       bool
-		path      *string
-		mode      *uint32
-		mkdir     *uint32
-		post      bool
-		put       bool
+		pubkey  bool
+		fullkey bool
+		jwks    bool
+		pem     bool
+		path    *string
+		mode    *uint32
+		mkdir   *uint32
+		post    bool
+		put     bool
+		//nolint:revive // TODO: find a better way of importing net/url and having a url variable
 		url_      *url.URL
 		plaintext bool
 	)
@@ -118,7 +119,7 @@ func handleWrite(args []string, set jwk.Set) error {
 				return errors.New("duplicate flag --mkdir")
 			}
 			if value == "" {
-				return errors.New("missing or emtpy value for --mkdir")
+				return errors.New("missing or empty value for --mkdir")
 			}
 			parsed, err := strconv.ParseUint(value, 8, 32)
 			if err != nil {
@@ -173,6 +174,7 @@ func handleWrite(args []string, set jwk.Set) error {
 	if jwks && pem {
 		return errors.New("cannot specify both --jwks and --pem")
 	} else if !pem {
+		//nolint:ineffassign // Make the values consistent even though its not used (yet)
 		jwks = true
 	}
 
@@ -183,11 +185,13 @@ func handleWrite(args []string, set jwk.Set) error {
 	}
 
 	encode := func() (string, error) {
-		if pem {
+		switch pem {
+		case true:
 			var builder strings.Builder
 			keys := set.Keys(context.Background())
 			for keys.Next(context.Background()) {
-				var key jwk.Key = keys.Pair().Value.(jwk.Key)
+				//nolint:forcetypeassert // It would be a bug if iterating over keys didn't give us a jwk.Key
+				var key = keys.Pair().Value.(jwk.Key)
 				if pubkey {
 					var err error
 					if key, err = key.PublicKey(); err != nil {
@@ -198,15 +202,16 @@ func handleWrite(args []string, set jwk.Set) error {
 				if err != nil {
 					return "", err
 				}
-				_, _ = builder.WriteString(string(b))
+				_, _ = builder.Write(b)
 			}
 			return builder.String(), nil
-		} else {
+		case false:
 			if pubkey {
 				pubset := jwk.NewSet()
 				keys := set.Keys(context.Background())
 				for keys.Next(context.Background()) {
-					var key jwk.Key = keys.Pair().Value.(jwk.Key)
+					//nolint:forcetypeassert // It would be a bug if iterating over keys didn't give us a jwk.Key
+					var key = keys.Pair().Value.(jwk.Key)
 					var err error
 					if key, err = key.PublicKey(); err != nil {
 						return "", err
@@ -222,6 +227,8 @@ func handleWrite(args []string, set jwk.Set) error {
 				return "", err
 			}
 			return string(b), nil
+		default:
+			panic("unreachable")
 		}
 	}
 
@@ -286,6 +293,7 @@ func handleWrite(args []string, set jwk.Set) error {
 		if post {
 			method = http.MethodPost
 		}
+		//nolint:noctx // TODO: introduce timeout
 		req, err := http.NewRequest(method, url_.String(), strings.NewReader(encoded))
 		if err != nil {
 			// should not be reachable
@@ -293,6 +301,9 @@ func handleWrite(args []string, set jwk.Set) error {
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			return err
+		}
+		if err = resp.Body.Close(); err != nil {
 			return err
 		}
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {

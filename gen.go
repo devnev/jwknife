@@ -39,7 +39,7 @@ var genFlags = strings.TrimSpace(`
 func handleGen(args []string, set jwk.Set) error {
 	var (
 		rsabits *int
-		ec      bool
+		ec      bool //nolint:varnamelen // This is fine
 		okp     bool
 		props   = make(map[string]any)
 	)
@@ -55,6 +55,8 @@ func handleGen(args []string, set jwk.Set) error {
 				return errors.New("missing or empty value for --rsa")
 			}
 			rsabits = new(int)
+			// Being conservative, allowing only specific bit lengths
+			//nolint:mnd // no point in extracting these to constants
 			*rsabits = map[string]int{
 				"2048": 2048,
 				"3072": 3072,
@@ -138,8 +140,8 @@ func handleGen(args []string, set jwk.Set) error {
 	}
 
 	if ec {
-		crvval, ok := props["crv"]
-		if !ok {
+		crvval, haveCrv := props["crv"]
+		if !haveCrv {
 			switch props["alg"] {
 			case jwa.ES256.String():
 				crvval = jwa.P256.String()
@@ -154,15 +156,15 @@ func handleGen(args []string, set jwk.Set) error {
 				return errors.New("must set crv or alg field with --setstr or --setjson for --ec")
 			}
 		}
-		crv, ok := crvval.(string)
-		if !ok {
+		crv, crvIsString := crvval.(string)
+		if !crvIsString {
 			return errors.New("crv field must be string for --ec")
 		}
-		curve, ok := jwk.CurveForAlgorithm(jwa.EllipticCurveAlgorithm(crv))
-		if !ok {
+		curve, haveCurve := jwk.CurveForAlgorithm(jwa.EllipticCurveAlgorithm(crv))
+		if !haveCurve {
 			return errors.New("curve unavailable")
 		}
-		if _, ok := props["alg"]; !ok {
+		if _, haveAlg := props["alg"]; !haveAlg {
 			switch crv {
 			case jwa.P256.String():
 				props["alg"] = jwa.ES256.String()
@@ -181,10 +183,10 @@ func handleGen(args []string, set jwk.Set) error {
 	}
 
 	if okp {
-		algval, ok := props["alg"]
-		if ok {
-			alg, ok := algval.(string)
-			if !ok {
+		algval, haveAlg := props["alg"]
+		if haveAlg {
+			alg, algIsStr := algval.(string)
+			if !algIsStr {
 				return errors.New("alg field must be string for --okp")
 			}
 			if alg != jwa.EdDSA.String() {
@@ -194,12 +196,12 @@ func handleGen(args []string, set jwk.Set) error {
 			props["alg"] = jwa.EdDSA.String()
 		}
 
-		crvval, ok := props["crv"]
-		if !ok {
+		crvval, haveCrv := props["crv"]
+		if !haveCrv {
 			return errors.New("must set crv field with --setstr or --setjson for --okp")
 		}
-		crv, ok := crvval.(string)
-		if !ok {
+		crv, crvIsStr := crvval.(string)
+		if !crvIsStr {
 			return errors.New("crv field must be string for --okp")
 		}
 		var rawKey any

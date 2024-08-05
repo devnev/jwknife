@@ -15,19 +15,21 @@ import (
 
 func main() {
 	if err := run(os.Args); err != nil {
-		println(err.Error())
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
 	if len(args) <= 1 {
+		//nolint:forbidigo // No args means user is expecting usage on stdout
 		fmt.Println(usage())
 		return nil
 	}
-	cmds := [][]string{[]string{"opts"}}
+	cmds := [][]string{{"opts"}}
 	for _, arg := range args[1:] {
 		if arg == "--help" {
+			//nolint:forbidigo // Explicit help requested means no other output and help is expected on stdout
 			fmt.Println(cmdHelp(cmds[len(cmds)-1][0]))
 			return nil
 		}

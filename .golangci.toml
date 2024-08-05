@@ -1,0 +1,47 @@
+[linters]
+enable-all = true
+disable = [
+    # deprecated
+    'gomnd',
+    # deprecated
+    'execinquery',
+    # arbitrary metric
+    'funlen',
+    # arbitrary metric
+    'gocognit',
+    # no line length limit
+    'lll',
+    # arbitrary metric
+    'nestif',
+    # globals can be fine
+    'gochecknoglobals',
+    # arbitrary metric
+    'gocyclo',
+    # TODO: enable
+    'wrapcheck',
+    # TODO: enable
+    'err113',
+    # false positives?! even after gofmt -s
+    'gofumpt',
+    # arbitrary metric
+    'cyclop',
+    # not convinced this one makes sense
+    'nlreturn',
+    # redundant with ineffassign
+    'wastedassign',
+    # arbitrary metric
+    'maintidx',
+    # TODO: review in detail and maybe enable
+    'wsl',
+]
+
+[linters-settings.depguard.rules.main]
+list-mode = "strict"
+allow = ["$gostd", "github.com/lestrrat-go/jwx/v2"]
+
+[linters-settings.varnamelen]
+ignore-decls = ['sb strings.Builder']
+# https://github.com/blizzy78/varnamelen/issues/33
+ignore-type-assert-ok = true
+ignore-map-index-ok = true
+ignore-chan-recv-ok = true
