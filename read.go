@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
+	neturl "net/url"
 	"os"
 	"slices"
 	"strings"
@@ -41,9 +41,8 @@ func handleRead(args []string, set jwk.Set) error {
 		pem       bool
 		plaintext bool
 		path      *string
-		//nolint:revive // TODO: find a better way of importing net/url and having a url variable
-		url_    *string
-		schemes *[]string
+		url       *string
+		schemes   *[]string
 	)
 	for _, arg := range args {
 		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
@@ -82,14 +81,14 @@ func handleRead(args []string, set jwk.Set) error {
 			path = new(string)
 			*path = value
 		case "url":
-			if url_ != nil {
+			if url != nil {
 				return errors.New("duplicate flag --path")
 			}
 			if value == "" {
 				return errors.New("missing or empty value for --url")
 			}
-			url_ = new(string)
-			*url_ = value
+			url = new(string)
+			*url = value
 		case "schemes":
 			if schemes != nil {
 				return errors.New("duplicate flag --schemes")
@@ -118,14 +117,14 @@ func handleRead(args []string, set jwk.Set) error {
 		jwks = true
 	}
 
-	if url_ == nil && path == nil {
+	if url == nil && path == nil {
 		return errors.New("must specify either --path or --url")
 	}
-	if url_ != nil && path != nil {
+	if url != nil && path != nil {
 		return errors.New("cannot specify both --path and --url")
 	}
 
-	if url_ != nil {
+	if url != nil {
 		if schemes != nil && !plaintext && slices.Contains(*schemes, "http") {
 			return errors.New("scheme http invalid without --insecure")
 		}
@@ -137,7 +136,7 @@ func handleRead(args []string, set jwk.Set) error {
 				*schemes = []string{"file", "https"}
 			}
 		}
-		parsed, err := url.Parse(*url_)
+		parsed, err := neturl.Parse(*url)
 		if err != nil {
 			return err
 		}
@@ -176,10 +175,10 @@ func readFromPath(arg string, kind contentKind, set jwk.Set) error {
 	return parseContents(contents, kind, set)
 }
 
-func readFromURL(from *url.URL, kind contentKind, set jwk.Set) error {
+func readFromURL(from *neturl.URL, kind contentKind, set jwk.Set) error {
 	if from.Scheme == "file" {
 		if from.Opaque != "" {
-			path, err := url.PathUnescape(from.Opaque)
+			path, err := neturl.PathUnescape(from.Opaque)
 			if err != nil {
 				return err
 			}

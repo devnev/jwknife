@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,17 +40,16 @@ var writeFlags = strings.TrimSpace(`
 
 func handleWrite(args []string, set jwk.Set) error {
 	var (
-		pubkey  bool
-		fullkey bool
-		jwks    bool
-		pem     bool
-		path    *string
-		mode    *uint32
-		mkdir   *uint32
-		post    bool
-		put     bool
-		//nolint:revive // TODO: find a better way of importing net/url and having a url variable
-		url_      *url.URL
+		pubkey    bool
+		fullkey   bool
+		jwks      bool
+		pem       bool
+		path      *string
+		mode      *uint32
+		mkdir     *uint32
+		post      bool
+		put       bool
+		url       *neturl.URL
 		plaintext bool
 	)
 
@@ -131,17 +130,17 @@ func handleWrite(args []string, set jwk.Set) error {
 			mkdir = new(uint32)
 			*mkdir = uint32(parsed)
 		case "url":
-			if url_ != nil {
+			if url != nil {
 				return errors.New("duplicate flag --url")
 			}
 			if value == "" {
 				return errors.New("missing or empty value for --url")
 			}
-			parsed, err := url.Parse(value)
+			parsed, err := neturl.Parse(value)
 			if err != nil {
 				return err
 			}
-			url_ = parsed
+			url = parsed
 		case "post":
 			if post {
 				return errors.New("duplicate flag --post")
@@ -232,10 +231,10 @@ func handleWrite(args []string, set jwk.Set) error {
 		}
 	}
 
-	if url_ == nil && path == nil {
+	if url == nil && path == nil {
 		return errors.New("must specify either --path or --url")
 	}
-	if url_ != nil && path != nil {
+	if url != nil && path != nil {
 		return errors.New("cannot specify both --path and --url")
 	}
 
@@ -268,7 +267,7 @@ func handleWrite(args []string, set jwk.Set) error {
 		return err
 	}
 
-	if url_ != nil {
+	if url != nil {
 		if mode != nil {
 			return errors.New("cannot specify both --url and --mode")
 		}
@@ -279,8 +278,8 @@ func handleWrite(args []string, set jwk.Set) error {
 			return errors.New("cannot specify both --post and --put")
 		}
 		switch {
-		case url_.Scheme == "https":
-		case plaintext && url_.Scheme == "http":
+		case url.Scheme == "https":
+		case plaintext && url.Scheme == "http":
 		default:
 			return errors.New("unsupported scheme for --url")
 		}
@@ -294,7 +293,7 @@ func handleWrite(args []string, set jwk.Set) error {
 			method = http.MethodPost
 		}
 		//nolint:noctx // TODO: introduce timeout
-		req, err := http.NewRequest(method, url_.String(), strings.NewReader(encoded))
+		req, err := http.NewRequest(method, url.String(), strings.NewReader(encoded))
 		if err != nil {
 			// should not be reachable
 			panic(err)
