@@ -35,6 +35,10 @@ var readFlags = strings.TrimSpace(`
 -schemes=scheme[,...] The schemes to allow. Defaults to all supported if not specified.
 `)
 
+var plaintextSchemes = []string{"http"}
+var nonPlaintextSchemes = []string{"file", "https"}
+var supportedSchemes = append(nonPlaintextSchemes, plaintextSchemes...)
+
 func handleRead(args []string, set jwk.Set) error {
 	var (
 		jwks      bool
@@ -99,9 +103,7 @@ func handleRead(args []string, set jwk.Set) error {
 			schemes = new([]string)
 			*schemes = strings.Split(arg, ",")
 			for _, scheme := range *schemes {
-				switch scheme {
-				case "file", "http", "https": //nolint:goconst // TODO: factor out various scheme lists
-				default:
+				if !slices.Contains(supportedSchemes, scheme) {
 					return errors.New("unsupported scheme")
 				}
 			}
@@ -125,15 +127,19 @@ func handleRead(args []string, set jwk.Set) error {
 	}
 
 	if url != nil {
-		if schemes != nil && !plaintext && slices.Contains(*schemes, "http") {
-			return errors.New("scheme http invalid without --insecure")
+		if schemes != nil && !plaintext {
+			for _, scheme := range *schemes {
+				if slices.Contains(plaintextSchemes, scheme) {
+					return errors.New("plaintext scheme forbidden without -allow-plaintext")
+				}
+			}
 		}
 		if schemes == nil {
 			schemes = new([]string)
 			if plaintext {
-				*schemes = []string{"file", "http", "https"}
+				*schemes = supportedSchemes
 			} else {
-				*schemes = []string{"file", "https"}
+				*schemes = nonPlaintextSchemes
 			}
 		}
 		parsed, err := neturl.Parse(*url)
