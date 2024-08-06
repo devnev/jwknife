@@ -10,12 +10,13 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
 var readSyntax = strings.TrimSpace(`
-read [-jwks] [-pem] [-allow-plaintext] [-path=path] [-url=url] [-schemes=scheme[,...]]
+read [-jwks] [-pem] [-path=path] [-url=url] [-url.allow-plaintext] [-url.schemes=scheme[,...]] [-url.timeout=duration] [-url.retry.interval=duration] [-url.retry.backoff=float] [-url.retry.end=duration] [-url.retry.jitter=float]
 `)
 
 var readSummary = strings.TrimSpace(`
@@ -27,12 +28,19 @@ If -pem is given, the ssource must be a series of one or more PEM blocks. Otherw
 `)
 
 var readFlags = strings.TrimSpace(`
--jwks                 The source must be a JWK or JWK set.
--pem                  The source must be a series of PEM blocks.
--allow-plaintext      Allow plaintext traffic during retrieval of the URL.
--path=path            The path of the source file.
--url=url              The url of the source. Supported schemes are file, http and https.
--schemes=scheme[,...] The schemes to allow. Defaults to all supported if not specified.
+-jwks                        The source must be a JWK or JWK set.
+-pem                         The source must be a series of PEM blocks.
+-path=path                   The path of the source file.
+-url=url                     The url of the source. Supported schemes are file, http and https.
+-url.allow-plaintext         Allow plaintext traffic during retrieval of the URL.
+-url.schemes=scheme[,...]    The schemes to allow. Defaults to all supported if not specified.
+-url.timeout=duration        Timeout for a remote read. Default is 10s.
+-url.retry.interval=duration Interval after a failed remote read before retrying. Default is 1s.
+-url.retry.backoff=float     Multiplier applied to the interval after each attempt. Default is 1.5.
+-url.retry.end=duration      No further attempts are started if the elapsed time since the first
+                             attempt exceeds this duration. Default is 1m.
+-url.retry.jitter=float      Randomised addition to each interval before waiting, as a proportion
+                             of the interval. Defaults to 0.1.
 `)
 
 var plaintextSchemes = []string{"http"}
@@ -44,10 +52,9 @@ func handleRead(args []string, set jwk.Set) error {
 		readflags = flagset{}
 		jwks      = addNoValueFlag(readflags, "jwks")
 		pem       = addNoValueFlag(readflags, "pem")
-		plaintext = addNoValueFlag(readflags, "allow-plaintext")
 		path      = addUnparsedFlag(readflags, "path")
 		url       = addValueFlag[*neturl.URL](readflags, "url", neturl.Parse)
-		schemes   = addValueFlag[[]string](readflags, "schemes", func(v string) ([]string, error) {
+		schemes   = addValueFlag[[]string](readflags, "url.schemes", func(v string) ([]string, error) {
 			split := strings.Split(v, ",")
 			for _, scheme := range split {
 				if !slices.Contains(supportedSchemes, scheme) {
@@ -56,6 +63,12 @@ func handleRead(args []string, set jwk.Set) error {
 			}
 			return split, nil
 		})
+		plaintext = addNoValueFlag(readflags, "url.allow-plaintext")
+		timeout   = addValueFlag[time.Duration](readflags, "url.timeout", parseNonNegativeDuration)
+		interval  = addValueFlag[time.Duration](readflags, "url.retry.interval", parseNonNegativeDuration)
+		backoff   = addValueFlag[float64](readflags, "url.retry.backoff", parseMultiplier)
+		retryEnd  = addValueFlag[time.Duration](readflags, "url.retry.end", parseNonNegativeDuration)
+		jitter    = addValueFlag[float64](readflags, "url.retry.jitter", parseNonNegativeFloat)
 	)
 
 	for _, arg := range args {
@@ -84,11 +97,12 @@ func handleRead(args []string, set jwk.Set) error {
 	if err := oneOf(false, url.Iface(), path.Iface()); err != nil {
 		return err
 	}
-	if err := oneOf(true, path.Iface(), plaintext.Iface()); err != nil {
-		return err
-	}
-	if err := oneOf(true, path.Iface(), schemes.Iface()); err != nil {
-		return err
+	for name, flag := range readflags {
+		if strings.HasPrefix(name, "url.") {
+			if err := oneOf(true, path.Iface(), flag); err != nil {
+				return err
+			}
+		}
 	}
 	if schemes.IsSet && !plaintext.IsSet {
 		for _, scheme := range schemes.Value {
@@ -109,11 +123,20 @@ func handleRead(args []string, set jwk.Set) error {
 		if !slices.Contains(schemes.Value, url.Value.Scheme) {
 			return errors.New("blocked url scheme")
 		}
+
+		retry := defaultRetryConf
+		assignIfSet(timeout, &retry.timeout)
+		assignIfSet(interval, &retry.interval)
+		assignIfSet(backoff, &retry.backoff)
+		assignIfSet(retryEnd, &retry.retryFor)
+		assignIfSet(jitter, &retry.jitter)
+
 		var kind = kindJWK
 		if pem.IsSet {
 			kind = kindPEM
 		}
-		return readFromURL(url.Value, kind, set)
+
+		return readFromURL(url.Value, retry, kind, set)
 	}
 
 	if path.IsSet {
@@ -135,7 +158,7 @@ func readFromPath(arg string, kind contentKind, set jwk.Set) error {
 	return parseContents(contents, kind, set)
 }
 
-func readFromURL(from *neturl.URL, kind contentKind, set jwk.Set) error {
+func readFromURL(from *neturl.URL, retry retryConf, kind contentKind, set jwk.Set) error {
 	if from.Scheme == "file" {
 		if from.Opaque != "" {
 			path, err := neturl.PathUnescape(from.Opaque)
@@ -153,13 +176,20 @@ func readFromURL(from *neturl.URL, kind contentKind, set jwk.Set) error {
 	}
 
 	if from.Scheme == "https" || from.Scheme == "http" {
-		//nolint:noctx // TODO: introduce timeout
-		resp, err := http.Get(from.String())
+		//nolint:noctx // the retrier manages the timeout
+		req, err := http.NewRequest(http.MethodGet, from.String(), nil)
+		if err != nil {
+			// should be unreachable
+			panic(err.Error())
+		}
+		resp, err := retry.Do(req, func(resp *http.Response) error {
+			if resp.StatusCode != http.StatusOK {
+				return errors.New("URl returned non-OK status")
+			}
+			return nil
+		})
 		if err != nil {
 			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			return errors.New("URL returned non-OK status")
 		}
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, resp.Body)

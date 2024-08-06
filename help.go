@@ -21,15 +21,15 @@ Example:
 	{{.Command}} read -pem -path=my.pem gen -rsa=2048 -set=alg=RS256 -set=use=sig write -jwks -path=my-jwk.json
 
 Available subcommands:
-	{{.ReadSyntax}}
-	{{.GenSyntax}}
-	{{.WriteSyntax}}
+{{.ReadSyntax | wrap 92 "     " | indent "\t"}}
+{{.GenSyntax | wrap 92 "    " | indent "\t"}}
+{{.WriteSyntax | wrap 92 "      " | indent "\t"}}
 
 # Read
 
-{{.ReadSyntax}}
+{{.ReadSyntax | wrap 100 "     " }}
 
-{{.ReadSummary | wrap 100}}
+{{.ReadSummary | wrap 100 "" }}
 
 Flags:
 {{.ReadFlags | indent "\t"}}
@@ -38,16 +38,16 @@ Flags:
 
 {{.GenSyntax}}
 
-{{.GenSummary | wrap 100}}
+{{.GenSummary | wrap 100 ""}}
 
 Flags:
 {{.GenFlags | indent "\t"}}
 
 # Write
 
-{{.WriteSyntax}}
+{{.WriteSyntax | wrap 100 "      " }}
 
-{{.WriteSummary | wrap 100}}
+{{.WriteSummary | wrap 100 ""}}
 
 Flags:
 {{.WriteFlags | indent "\t"}}
@@ -79,9 +79,9 @@ var cmdHelpTpl = template.Must(template.New("cmdhelp").
 {{.Command}}:
 {{.Flags | indent "\t"}}
 commands:
-{{.ReadSyntax | indent "\t"}}
-{{.GenSyntax | indent "\t"}}
-{{.WriteSyntax | indent "\t"}}
+{{.ReadSyntax | wrap 92 "     " | indent "\t"}}
+{{.GenSyntax | wrap 92 "    " | indent "\t"}}
+{{.WriteSyntax | wrap 92 "      " | indent "\t"}}
 `))
 
 func cmdHelp(cmd string) string {
@@ -115,18 +115,23 @@ var tplFuncs = template.FuncMap{
 		return indent + strings.ReplaceAll(text, "\n", "\n"+indent)
 	},
 	"trim": strings.TrimSpace,
-	"wrap": func(maxlength int, text string) string {
+	"wrap": func(maxlength int, indent string, text string) string {
 		var sb strings.Builder
-		for len(text) > 0 {
-			if nl := strings.Index(text, "\n"); nl >= 0 && nl < maxlength {
+		for indentline := false; len(text) > 0; indentline = true {
+			wraplength := maxlength
+			if indentline {
+				sb.WriteString(indent)
+				wraplength -= len(indent)
+			}
+			if nl := strings.Index(text, "\n"); nl >= 0 && nl < wraplength {
 				sb.WriteString(text[:nl+1])
 				text = text[nl+1:]
 				continue
 			}
-			if maxlength >= len(text) {
+			if wraplength >= len(text) {
 				break
 			}
-			wrapAt := strings.LastIndex(text[:maxlength+1], " ")
+			wrapAt := strings.LastIndex(text[:wraplength+1], " ")
 			if wrapAt < 0 {
 				wrapAt = strings.Index(text, " ")
 				if wrapAt < 0 {

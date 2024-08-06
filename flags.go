@@ -2,18 +2,20 @@ package main
 
 import (
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func addNoValueFlag(fs flagset, name string) *valflag[novalue] {
 	flag := &valflag[novalue]{Name: name}
-	fs.addFlag(name, flag)
+	fs.addFlag(name, flag.Iface())
 	return flag
 }
 
 func addValueFlag[T any](fs flagset, name string, parse func(string) (T, error)) *valflag[T] {
 	flag := &valflag[T]{Name: name, Parse: parse}
-	fs.addFlag(name, flag)
+	fs.addFlag(name, flag.Iface())
 	return flag
 }
 
@@ -40,7 +42,7 @@ func addSliceFlag[T any](fs flagset, name string, parse func(string) (T, error))
 			return append(ss, val), nil
 		},
 	}
-	fs.addFlag(name, flag)
+	fs.addFlag(name, flag.Iface())
 	return flag
 }
 
@@ -62,7 +64,7 @@ func addExternalFlag(fs flagset, name string, handle func(val string) error) *va
 			return struct{}{}, handle(s)
 		},
 	}
-	fs.addFlag(name, flag)
+	fs.addFlag(name, flag.Iface())
 	return flag
 }
 
@@ -106,18 +108,18 @@ func (f *valflag[T]) SetValue(value string) error {
 	return err
 }
 
-func (f *valflag[T]) Iface() valflagiface { //nolint:ireturn // interface return is intentional here
+func (f *valflag[T]) Iface() flag { //nolint:ireturn // interface return is intentional here
 	return valflagwrapper[T]{flag: f}
 }
 
-type valflagiface interface {
+type flag interface {
 	Name() string
 	IsSet() bool
 	Set() error
 	SetValue(value string) error
 }
 
-func oneOf(noneOK bool, flags ...valflagiface) error {
+func oneOf(noneOK bool, flags ...flag) error {
 	var count int
 	for _, f := range flags {
 		if f.IsSet() {
@@ -149,6 +151,12 @@ func oneOf(noneOK bool, flags ...valflagiface) error {
 	return errors.New("cannot specify multiple of " + strings.Join(allbut, ", ") + ", and " + last)
 }
 
+func assignIfSet[T any](f *valflag[T], dst *T) {
+	if f.IsSet {
+		*dst = f.Value
+	}
+}
+
 type valflagwrapper[T any] struct {
 	flag *valflag[T]
 }
@@ -169,11 +177,6 @@ func (f valflagwrapper[T]) SetValue(v string) error {
 	return f.flag.SetValue(v)
 }
 
-type flag interface {
-	Set() error
-	SetValue(value string) error
-}
-
 type flagset map[string]flag
 
 func (s flagset) addFlag(name string, f flag) {
@@ -181,4 +184,37 @@ func (s flagset) addFlag(name string, f flag) {
 		panic("duplicate flag --" + name)
 	}
 	s[name] = f
+}
+
+func parseNonNegativeDuration(value string) (time.Duration, error) {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, err
+	}
+	if d < 0 {
+		return 0, errors.New("invalid negative duration")
+	}
+	return d, nil
+}
+
+func parseNonNegativeFloat(value string) (float64, error) {
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	if f < 0 {
+		return 0, errors.New("value must be non-negative")
+	}
+	return f, nil
+}
+
+func parseMultiplier(value string) (float64, error) {
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	if f < 1 {
+		return 0, errors.New("must be a value of at least 1")
+	}
+	return f, nil
 }
