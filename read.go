@@ -41,133 +41,87 @@ var supportedSchemes = append(nonPlaintextSchemes, plaintextSchemes...)
 
 func handleRead(args []string, set jwk.Set) error {
 	var (
-		jwks      bool
-		pem       bool
-		plaintext bool
-		path      *string
-		url       *string
-		schemes   *[]string
+		readflags = flagset{}
+		jwks      = addNoValueFlag(readflags, "jwks")
+		pem       = addNoValueFlag(readflags, "pem")
+		plaintext = addNoValueFlag(readflags, "allow-plaintext")
+		path      = addUnparsedFlag(readflags, "path")
+		url       = addValueFlag[*neturl.URL](readflags, "url", neturl.Parse)
+		schemes   = addValueFlag[[]string](readflags, "schemes", func(v string) ([]string, error) {
+			split := strings.Split(v, ",")
+			for _, scheme := range split {
+				if !slices.Contains(supportedSchemes, scheme) {
+					return nil, errors.New("unsupported scheme")
+				}
+			}
+			return split, nil
+		})
 	)
+
 	for _, arg := range args {
 		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
-		switch name {
-		case "jwks":
-			if jwks {
-				return errors.New("duplicate flag --jwks")
-			}
-			if found {
-				return errors.New("--jwks does not take a value")
-			}
-			jwks = true
-		case "pem":
-			if pem {
-				return errors.New("duplicate flag --pem")
-			}
-			if found {
-				return errors.New("--pem does not take a value")
-			}
-			pem = true
-		case "allow-plaintext":
-			if plaintext {
-				return errors.New("duplicate flag --allow-plaintext")
-			}
-			if found {
-				return errors.New("--allow-plaintext does not take a value")
-			}
-			plaintext = true
-		case "path":
-			if path != nil {
-				return errors.New("duplicate flag --path")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --path")
-			}
-			path = new(string)
-			*path = value
-		case "url":
-			if url != nil {
-				return errors.New("duplicate flag --path")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --url")
-			}
-			url = new(string)
-			*url = value
-		case "schemes":
-			if schemes != nil {
-				return errors.New("duplicate flag --schemes")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --schemes")
-			}
-			schemes = new([]string)
-			*schemes = strings.Split(arg, ",")
-			for _, scheme := range *schemes {
-				if !slices.Contains(supportedSchemes, scheme) {
-					return errors.New("unsupported scheme")
-				}
-			}
+		flag := readflags[name]
+		var err error
+		switch {
+		case flag == nil:
+			err = errors.New("unknown flag --" + name)
+		case !found:
+			err = flag.Set()
 		default:
-			return errors.New("invalid flag")
+			err = flag.SetValue(value)
 		}
-	}
-
-	if jwks && pem {
-		return errors.New("cannot specify both --jwks and --pem")
-	} else if !pem {
-		//nolint:ineffassign // Make the values consistent even though its not used (yet)
-		jwks = true
-	}
-
-	if url == nil && path == nil {
-		return errors.New("must specify either --path or --url")
-	}
-	if url != nil && path != nil {
-		return errors.New("cannot specify both --path and --url")
-	}
-
-	if url != nil {
-		if schemes != nil && !plaintext {
-			for _, scheme := range *schemes {
-				if slices.Contains(plaintextSchemes, scheme) {
-					return errors.New("plaintext scheme forbidden without -allow-plaintext")
-				}
-			}
-		}
-		if schemes == nil {
-			schemes = new([]string)
-			if plaintext {
-				*schemes = supportedSchemes
-			} else {
-				*schemes = nonPlaintextSchemes
-			}
-		}
-		parsed, err := neturl.Parse(*url)
 		if err != nil {
 			return err
 		}
-		if !slices.Contains(*schemes, parsed.Scheme) {
+	}
+
+	if err := oneOf(true, jwks.Iface(), pem.Iface()); err != nil {
+		return err
+	} else if !pem.IsSet {
+		// Set default to avoid bugs
+		jwks.IsSet = true
+	}
+	if err := oneOf(false, url.Iface(), path.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, path.Iface(), plaintext.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, path.Iface(), schemes.Iface()); err != nil {
+		return err
+	}
+	if schemes.IsSet && !plaintext.IsSet {
+		for _, scheme := range schemes.Value {
+			if slices.Contains(plaintextSchemes, scheme) {
+				return errors.New("plaintext scheme forbidden without -allow-plaintext")
+			}
+		}
+	}
+	if !schemes.IsSet {
+		if plaintext.IsSet {
+			schemes.Value = supportedSchemes
+		} else {
+			schemes.Value = nonPlaintextSchemes
+		}
+	}
+
+	if url.IsSet {
+		if !slices.Contains(schemes.Value, url.Value.Scheme) {
 			return errors.New("blocked url scheme")
 		}
 		var kind = kindJWK
-		if pem {
+		if pem.IsSet {
 			kind = kindPEM
 		}
-		return readFromURL(parsed, kind, set)
+		return readFromURL(url.Value, kind, set)
 	}
 
-	if path != nil {
-		if plaintext {
-			return errors.New("can only specify --insecure with --url")
-		}
-		if schemes != nil {
-			return errors.New("can only specify --schemes with --url")
-		}
+	if path.IsSet {
 		var kind = kindJWK
-		if pem {
+		if pem.IsSet {
 			kind = kindPEM
 		}
-		return readFromPath(*path, kind, set)
+		return readFromPath(path.Value, kind, set)
 	}
 
 	panic("unreachable")

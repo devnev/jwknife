@@ -33,6 +33,10 @@ disable = [
     'maintidx',
     # TODO: review in detail and maybe enable
     'wsl',
+    # default field values are ok
+    'exhaustruct',
+    # too many problems :(
+    'varnamelen',
 ]
 
 [linters-settings.depguard.rules.main]

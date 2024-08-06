@@ -40,158 +40,98 @@ var writeFlags = strings.TrimSpace(`
 
 func handleWrite(args []string, set jwk.Set) error {
 	var (
-		pubkey    bool
-		fullkey   bool
-		jwks      bool
-		pem       bool
-		path      *string
-		mode      *uint32
-		mkdir     *uint32
-		post      bool
-		put       bool
-		url       *neturl.URL
-		plaintext bool
+		writeflags = flagset{}
+		pubkey     = addNoValueFlag(writeflags, "pubkey")
+		fullkey    = addNoValueFlag(writeflags, "fullkey")
+		jwks       = addNoValueFlag(writeflags, "jwks")
+		pem        = addNoValueFlag(writeflags, "pem")
+		path       = addUnparsedFlag(writeflags, "path")
+		mode       = addValueFlag[uint32](writeflags, "mode", func(value string) (uint32, error) {
+			parsed, err := strconv.ParseUint(value, 8, 32)
+			if err != nil {
+				return 0, err
+			}
+			if (parsed & ^uint64(os.ModePerm)) != 0 {
+				return 0, errors.New("invalid mode")
+			}
+			return uint32(parsed), nil
+		})
+		mkdir = addValueFlag[uint32](writeflags, "mkdir", func(value string) (uint32, error) {
+			parsed, err := strconv.ParseUint(value, 8, 32)
+			if err != nil {
+				return 0, err
+			}
+			if (parsed & ^uint64(os.ModePerm)) != 0 {
+				return 0, errors.New("invalid mkdir mode")
+			}
+			return uint32(parsed), nil
+		})
+		post      = addNoValueFlag(writeflags, "post")
+		put       = addNoValueFlag(writeflags, "put")
+		url       = addValueFlag[*neturl.URL](writeflags, "url", neturl.Parse)
+		plaintext = addNoValueFlag(writeflags, "allow-plaintext")
 	)
 
 	for _, arg := range args {
 		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
-		switch name {
-		case "pubkey":
-			if pubkey {
-				return errors.New("duplicate flag --pubkey")
-			}
-			if found {
-				return errors.New("--pubkey does not take a value")
-			}
-			pubkey = true
-		case "fullkey":
-			if fullkey {
-				return errors.New("duplicate flag --fullkey")
-			}
-			if found {
-				return errors.New("--fullkey does not take a value")
-			}
-			fullkey = true
-		case "jwks":
-			if jwks {
-				return errors.New("duplicate flag --jwks")
-			}
-			if found {
-				return errors.New("--jwks does not take a value")
-			}
-			jwks = true
-		case "pem":
-			if pem {
-				return errors.New("duplicate flag --pem")
-			}
-			if found {
-				return errors.New("--pem does not take a value")
-			}
-			pem = true
-		case "path":
-			if path != nil {
-				return errors.New("duplicate flag --path")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --path")
-			}
-			path = new(string)
-			*path = value
-		case "mode":
-			if mode != nil {
-				return errors.New("duplicate flag --path")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --mode")
-			}
-			parsed, err := strconv.ParseUint(value, 8, 32)
-			if err != nil {
-				return err
-			}
-			if (parsed & ^uint64(os.ModePerm)) != 0 {
-				return errors.New("invalid mode")
-			}
-			mode = new(uint32)
-			*mode = uint32(parsed)
-		case "mkdir":
-			if mkdir != nil {
-				return errors.New("duplicate flag --mkdir")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --mkdir")
-			}
-			parsed, err := strconv.ParseUint(value, 8, 32)
-			if err != nil {
-				return err
-			}
-			if (parsed & ^uint64(os.ModePerm)) != 0 {
-				return errors.New("invalid mkdir mode")
-			}
-			mkdir = new(uint32)
-			*mkdir = uint32(parsed)
-		case "url":
-			if url != nil {
-				return errors.New("duplicate flag --url")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --url")
-			}
-			parsed, err := neturl.Parse(value)
-			if err != nil {
-				return err
-			}
-			url = parsed
-		case "post":
-			if post {
-				return errors.New("duplicate flag --post")
-			}
-			if found {
-				return errors.New("--post does not take a value")
-			}
-			post = true
-		case "put":
-			if put {
-				return errors.New("duplicate flag --put")
-			}
-			if found {
-				return errors.New("--put does not take a value")
-			}
-			put = true
-		case "allow-plaintext":
-			if plaintext {
-				return errors.New("duplicate flag --allow-plaintext")
-			}
-			if found {
-				return errors.New("--allow-plaintext does not take a value")
-			}
-			plaintext = true
+		flag := writeflags[name]
+		var err error
+		switch {
+		case flag == nil:
+			err = errors.New("unknown flag --" + name)
+		case !found:
+			err = flag.Set()
 		default:
-			return errors.New("invalid flag")
+			err = flag.SetValue(value)
+		}
+		if err != nil {
+			return err
 		}
 	}
 
-	if jwks && pem {
-		return errors.New("cannot specify both --jwks and --pem")
-	} else if !pem {
-		//nolint:ineffassign // Make the values consistent even though its not used (yet)
-		jwks = true
+	if err := oneOf(true, jwks.Iface(), pem.Iface()); err != nil {
+		return err
+	} else if !pem.IsSet {
+		// Set default to avoid bugs
+		jwks.IsSet = true
 	}
-
-	if pubkey && fullkey {
-		return errors.New("cannot specify both --pubkey and --fullkey")
-	} else if !fullkey {
-		pubkey = true
+	if err := oneOf(true, pubkey.Iface(), fullkey.Iface()); err != nil {
+		return err
+	} else if !fullkey.IsSet {
+		// Set default to avoid bugs
+		pubkey.IsSet = true
+	}
+	if err := oneOf(false, url.Iface(), path.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, path.Iface(), post.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, path.Iface(), put.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, path.Iface(), plaintext.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, url.Iface(), mode.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, url.Iface(), mkdir.Iface()); err != nil {
+		return err
+	}
+	if err := oneOf(true, post.Iface(), put.Iface()); err != nil {
+		return err
 	}
 
 	encode := func() (string, error) {
-		switch pem {
+		switch pem.IsSet {
 		case true:
 			var builder strings.Builder
 			keys := set.Keys(context.Background())
 			for keys.Next(context.Background()) {
 				//nolint:forcetypeassert // It would be a bug if iterating over keys didn't give us a jwk.Key
 				var key = keys.Pair().Value.(jwk.Key)
-				if pubkey {
+				if pubkey.IsSet {
 					var err error
 					if key, err = key.PublicKey(); err != nil {
 						return "", err
@@ -205,7 +145,7 @@ func handleWrite(args []string, set jwk.Set) error {
 			}
 			return builder.String(), nil
 		case false:
-			if pubkey {
+			if pubkey.IsSet {
 				pubset := jwk.NewSet()
 				keys := set.Keys(context.Background())
 				for keys.Next(context.Background()) {
@@ -231,55 +171,29 @@ func handleWrite(args []string, set jwk.Set) error {
 		}
 	}
 
-	if url == nil && path == nil {
-		return errors.New("must specify either --path or --url")
-	}
-	if url != nil && path != nil {
-		return errors.New("cannot specify both --path and --url")
-	}
-
-	if path != nil {
-		if post {
-			return errors.New("cannot specify both --path and --post")
-		}
-		if put {
-			return errors.New("cannot specify both --path and --put")
-		}
-		if plaintext {
-			return errors.New("cannot specify both --path and --allow-plaintext")
-		}
-
+	if path.IsSet {
 		encoded, err := encode()
 		if err != nil {
 			return err
 		}
 		var filemode os.FileMode = 0400
-		if mode != nil {
-			filemode = os.FileMode(*mode)
+		if mode.IsSet {
+			filemode = os.FileMode(mode.Value)
 		}
-		err = os.WriteFile(*path, []byte(encoded), filemode)
-		if os.IsNotExist(err) && mkdir != nil {
-			if err = os.MkdirAll(filepath.Base(*path), os.FileMode(*mkdir)); err != nil {
+		err = os.WriteFile(path.Value, []byte(encoded), filemode)
+		if os.IsNotExist(err) && mkdir.IsSet {
+			if err = os.MkdirAll(filepath.Base(path.Value), os.FileMode(mkdir.Value)); err != nil {
 				return err
 			}
-			err = os.WriteFile(*path, []byte(encoded), filemode)
+			err = os.WriteFile(path.Value, []byte(encoded), filemode)
 		}
 		return err
 	}
 
-	if url != nil {
-		if mode != nil {
-			return errors.New("cannot specify both --url and --mode")
-		}
-		if mkdir != nil {
-			return errors.New("cannot specify both --url and --mkdir")
-		}
-		if post && put {
-			return errors.New("cannot specify both --post and --put")
-		}
+	if url.IsSet {
 		switch {
-		case url.Scheme == "https":
-		case plaintext && url.Scheme == "http":
+		case url.Value.Scheme == "https":
+		case plaintext.IsSet && url.Value.Scheme == "http":
 		default:
 			return errors.New("unsupported scheme for --url")
 		}
@@ -289,11 +203,11 @@ func handleWrite(args []string, set jwk.Set) error {
 			return err
 		}
 		var method = http.MethodPut
-		if post {
+		if post.IsSet {
 			method = http.MethodPost
 		}
 		//nolint:noctx // TODO: introduce timeout
-		req, err := http.NewRequest(method, url.String(), strings.NewReader(encoded))
+		req, err := http.NewRequest(method, url.Value.String(), strings.NewReader(encoded))
 		if err != nil {
 			// should not be reachable
 			panic(err)

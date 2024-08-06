@@ -38,70 +38,40 @@ var genFlags = strings.TrimSpace(`
 
 func handleGen(args []string, set jwk.Set) error {
 	var (
-		rsabits *int
-		ec      bool //nolint:varnamelen // This is fine
-		okp     bool
-		props   = make(map[string]any)
-	)
-
-	for _, arg := range args {
-		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
-		switch name {
-		case "rsa":
-			if rsabits != nil {
-				return errors.New("duplicate flag --rsa")
-			}
-			if value == "" {
-				return errors.New("missing or empty value for --rsa")
-			}
-			rsabits = new(int)
+		genflags = flagset{}
+		rsabits  = addValueFlag[int](genflags, "rsa", func(s string) (int, error) {
 			// Being conservative, allowing only specific bit lengths
 			//nolint:mnd // no point in extracting these to constants
-			*rsabits = map[string]int{
+			bits := map[string]int{
 				"2048": 2048,
 				"3072": 3072,
 				"4096": 4096,
-			}[value]
-			if *rsabits == 0 {
-				return errors.New("unsupported bit-length for --rsa")
+			}[s]
+			if bits == 0 {
+				return 0, errors.New("unsupported bit-length for --rsa")
 			}
-		case "ec":
-			if ec {
-				return errors.New("duplicate flag --ec")
-			}
-			if found {
-				return errors.New("--ec does not take a value")
-			}
-			ec = true
-		case "okp":
-			if okp {
-				return errors.New("duplicate flag --okp")
-			}
-			if found {
-				return errors.New("--okp does not take a value")
-			}
-			okp = true
-		case "setstr":
-			if value == "" {
-				return errors.New("missing or empty value for --set")
-			}
-			name, value, found = strings.Cut(value, "=")
+			return bits, nil
+		})
+		ec    = addNoValueFlag(genflags, "ec") //nolint:varnamelen // This is fine
+		okp   = addNoValueFlag(genflags, "okp")
+		props = make(map[string]any)
+		_     = addExternalFlag(genflags, "setstr", func(value string) error {
+			name, value, found := strings.Cut(value, "=")
 			if !found {
 				return errors.New("--set value must be key=value format")
 			}
-			if _, exists := props[name]; exists {
+			if _, exists := props[value]; exists {
 				return errors.New("duplicate --set key")
 			}
 			props[name] = value
-		case "setjson":
-			if value == "" {
-				return errors.New("missing or empty value for --set")
-			}
-			name, value, found = strings.Cut(value, "=")
+			return nil
+		})
+		_ = addExternalFlag(genflags, "setjson", func(value string) error {
+			name, value, found := strings.Cut(value, "=")
 			if !found {
 				return errors.New("--set value must be key=value format")
 			}
-			if _, exists := props[name]; exists {
+			if _, exists := props[value]; exists {
 				return errors.New("duplicate --set key")
 			}
 			var obj any
@@ -109,37 +79,40 @@ func handleGen(args []string, set jwk.Set) error {
 				return err
 			}
 			props[name] = obj
+			return nil
+		})
+	)
+
+	for _, arg := range args {
+		name, value, found := strings.Cut(strings.TrimPrefix(arg[1:], "-"), "=")
+		flag := genflags[name]
+		var err error
+		switch {
+		case flag == nil:
+			err = errors.New("unknown flag --" + name)
+		case !found:
+			err = flag.Set()
 		default:
-			return errors.New("invalid flag")
+			err = flag.SetValue(value)
+		}
+		if err != nil {
+			return err
 		}
 	}
 
-	var ktycount int
-	if rsabits != nil {
-		ktycount++
-	}
-	if ec {
-		ktycount++
-	}
-	if okp {
-		ktycount++
-	}
-	if ktycount == 0 {
-		return errors.New("must specify one of --rsa, --ec or --okp")
-	}
-	if ktycount > 1 {
-		return errors.New("cannot specify multiple of --rsa, --ec or --okp")
+	if err := oneOf(false, rsabits.Iface(), ec.Iface(), okp.Iface()); err != nil {
+		return err
 	}
 
-	if rsabits != nil {
-		rawKey, err := rsa.GenerateKey(rand.Reader, *rsabits)
+	if rsabits.IsSet {
+		rawKey, err := rsa.GenerateKey(rand.Reader, rsabits.Value)
 		if err != nil {
 			return err
 		}
 		return addKey(rawKey, props, set)
 	}
 
-	if ec {
+	if ec.IsSet {
 		crvval, haveCrv := props["crv"]
 		if !haveCrv {
 			switch props["alg"] {
@@ -182,7 +155,7 @@ func handleGen(args []string, set jwk.Set) error {
 		return addKey(rawKey, props, set)
 	}
 
-	if okp {
+	if okp.IsSet {
 		algval, haveAlg := props["alg"]
 		if haveAlg {
 			alg, algIsStr := algval.(string)
