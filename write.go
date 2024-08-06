@@ -217,27 +217,28 @@ func handleWrite(args []string, set jwk.Set) error {
 			method = http.MethodPost
 		}
 
-		retry := defaultRetryConf
-		assignIfSet(timeout, &retry.timeout)
-		assignIfSet(interval, &retry.interval)
-		assignIfSet(backoff, &retry.backoff)
-		assignIfSet(retryEnd, &retry.retryFor)
-		assignIfSet(jitter, &retry.jitter)
+		reqConf := defaultHTTPConf
+		assignIfSet(timeout, &reqConf.timeout)
+		assignIfSet(interval, &reqConf.interval)
+		assignIfSet(backoff, &reqConf.backoff)
+		assignIfSet(retryEnd, &reqConf.retryFor)
+		assignIfSet(jitter, &reqConf.jitter)
 
-		return writeToURL(encoded, method, url.Value, retry)
+		return writeToURL(encoded, method, url.Value, reqConf)
 	}
 
 	panic("unreachable")
 }
 
-func writeToURL(content string, method string, url *neturl.URL, retry retryConf) error {
+func writeToURL(content string, method string, url *neturl.URL, conf httpConf) error {
 	//nolint:noctx // the retrier manages the timeout
 	req, err := http.NewRequest(method, url.String(), strings.NewReader(content))
 	if err != nil {
 		// should be unreachable
 		panic(err.Error())
 	}
-	resp, err := retry.Do(req, func(resp *http.Response) error {
+
+	resp, err := conf.Do(req, func(resp *http.Response) error {
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			return errors.New("URl returned non-OK status")
 		}

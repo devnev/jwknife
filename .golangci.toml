@@ -49,3 +49,6 @@ ignore-decls = ['sb strings.Builder']
 ignore-type-assert-ok = true
 ignore-map-index-ok = true
 ignore-chan-recv-ok = true
+
+[linters-settings.goconst]
+ignore-strings = "https"

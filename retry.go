@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	mathrand "math/rand"
 	"net/http"
 	"time"
 )
 
-type retryConf struct {
+type httpConf struct {
 	timeout  time.Duration
 	interval time.Duration
 	backoff  float64
@@ -19,7 +20,7 @@ type retryConf struct {
 // Hopefully sane defaults, retrying for up to a minute while backing off, with a short-ish per-request timeout of 10s as payloads should be static and small.
 //
 //nolint:mnd // defaults chosen as per above
-var defaultRetryConf = retryConf{
+var defaultHTTPConf = httpConf{
 	timeout:  10 * time.Second,
 	interval: time.Second,
 	backoff:  1.5,
@@ -27,7 +28,21 @@ var defaultRetryConf = retryConf{
 	jitter:   0.1,
 }
 
-func (c retryConf) Do(req *http.Request, accept func(*http.Response) error) (*http.Response, error) {
+func (c httpConf) Do(req *http.Request, accept func(*http.Response) error) (*http.Response, error) {
+	client := *http.DefaultClient
+	if req.URL.Scheme == "https" {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			// Prevent downgrades from encrypted to unencrypted requests
+			if req.URL.Scheme != "https" {
+				return http.ErrUseLastResponse
+			}
+			//nolint:mnd // Match net/http default behaviour
+			if len(via) > 10 {
+				return errors.New("stopped after 10 requests")
+			}
+			return nil
+		}
+	}
 	lastBefore := time.Now().Add(c.retryFor)
 
 	var lastErr error
@@ -58,7 +73,7 @@ func (c retryConf) Do(req *http.Request, accept func(*http.Response) error) (*ht
 		}
 		req = req.WithContext(ctx)
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		cancel()
 
 		if err != nil {

@@ -124,19 +124,19 @@ func handleRead(args []string, set jwk.Set) error {
 			return errors.New("blocked url scheme")
 		}
 
-		retry := defaultRetryConf
-		assignIfSet(timeout, &retry.timeout)
-		assignIfSet(interval, &retry.interval)
-		assignIfSet(backoff, &retry.backoff)
-		assignIfSet(retryEnd, &retry.retryFor)
-		assignIfSet(jitter, &retry.jitter)
+		reqConf := defaultHTTPConf
+		assignIfSet(timeout, &reqConf.timeout)
+		assignIfSet(interval, &reqConf.interval)
+		assignIfSet(backoff, &reqConf.backoff)
+		assignIfSet(retryEnd, &reqConf.retryFor)
+		assignIfSet(jitter, &reqConf.jitter)
 
 		var kind = kindJWK
 		if pem.IsSet {
 			kind = kindPEM
 		}
 
-		return readFromURL(url.Value, retry, kind, set)
+		return readFromURL(url.Value, reqConf, kind, set)
 	}
 
 	if path.IsSet {
@@ -158,7 +158,7 @@ func readFromPath(arg string, kind contentKind, set jwk.Set) error {
 	return parseContents(contents, kind, set)
 }
 
-func readFromURL(from *neturl.URL, retry retryConf, kind contentKind, set jwk.Set) error {
+func readFromURL(from *neturl.URL, conf httpConf, kind contentKind, set jwk.Set) error {
 	if from.Scheme == "file" {
 		if from.Opaque != "" {
 			path, err := neturl.PathUnescape(from.Opaque)
@@ -182,7 +182,8 @@ func readFromURL(from *neturl.URL, retry retryConf, kind contentKind, set jwk.Se
 			// should be unreachable
 			panic(err.Error())
 		}
-		resp, err := retry.Do(req, func(resp *http.Response) error {
+
+		resp, err := conf.Do(req, func(resp *http.Response) error {
 			if resp.StatusCode != http.StatusOK {
 				return errors.New("URl returned non-OK status")
 			}
